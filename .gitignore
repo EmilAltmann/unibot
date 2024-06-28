@@ -3,3 +3,6 @@
 /example_code/rp2040_modules/src/.vscode
 /example_code/rp2040_modules/.vscode
 /example_code/rp2040_modules/CMakeLists.txt
+/example_code/rp2040_modules/build.sh
+/example_code/rp2040_modules/wait.sh
+/example_code/rp2040_modules/build
