@@ -1,0 +1,106 @@
+
+// modified for the use with three ten LED bargraphs from:
+/*
+ * Copyright (c) 2022 Gerhard Schiller
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ * https://www.gnu.org/licenses/lgpl+gpl-3.0.txt
+ */
+ 
+.program shiftreg
+
+.define NUM_DEVICES 4	; count of devices in daisy-chain: 1 ... 4
+
+.define loopctr 	((NUM_DEVICES * 8) - 1)
+
+
+.side_set 1 opt
+
+pull         					; Load a 32-bit word from the TX FIFO into the OSR, or stall
+set x, loopctr      			; Preload bit counter
+
+bitloop:                   		; This loop will run NUM_DEVICES*8 times
+out pins, 1 side 0        		; Shift 1 bit from OSR to the first pin: "PIN_DATA"
+	jmp x-- bitloop side 1
+set pins, 0 side 0 				; Bring data and clock low line at end of data
+
+; Latch pulse. Transfer data from shift register to output buffer
+set pins, 1						; Latch high (data and clock still low)
+set pins, 0						; Latch low (data and clock remain low)
+
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline struct pio_inst shiftreg_init(uint8_t latch_pin, uint8_t clk_pin, uint8_t data_pin) {
+
+	struct pio_inst instance;
+
+    // look for unused state machine in both PIO cores
+	PIO pio = pio0;
+    uint sm = pio_claim_unused_sm(pio0, false);
+    if (sm == -1) {
+		uint sm = pio_claim_unused_sm(pio1, true);
+		PIO pio = pio1;
+    }
+
+    instance.sm = sm;
+    instance.pio = pio;
+
+	//init gpio for use by pio 
+	pio_gpio_init(pio, latch_pin); 	//LCLK
+	pio_gpio_init(pio, clk_pin); 	//SRCLK
+	pio_gpio_init(pio, data_pin); 	//SER
+
+	// set the pins as output
+    pio_sm_set_consecutive_pindirs(pio, sm, latch_pin, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, clk_pin, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, data_pin, 1, true);
+
+	//add programm
+	uint shiftreg_offset = pio_add_program(pio, &shiftreg_program);	
+	pio_sm_config config_shiftreg = shiftreg_program_get_default_config(shiftreg_offset);
+
+	// OUT shifts to left, no autopull
+	sm_config_set_out_shift(&config_shiftreg, false, false, 32);
+
+	// config pins
+	sm_config_set_out_pins(&config_shiftreg, data_pin , 1);   // pins to use in OUT instr
+	sm_config_set_sideset_pins(&config_shiftreg, clk_pin);  	// pins to use in SIDE instr
+	sm_config_set_set_pins(&config_shiftreg, latch_pin, 1);   // pins to use in SET instr
+
+	// set clock speed
+	float div = (float)clock_get_hz(clk_sys) / ((100 * 1000) * 2);
+	sm_config_set_clkdiv(&config_shiftreg, div);
+
+	// load config to sm
+	pio_sm_init(pio, sm, shiftreg_offset, &config_shiftreg);
+
+	// clear fifo and start
+	pio_sm_clear_fifos(pio, sm);
+	pio_sm_set_enabled(pio, sm, true);
+
+	return instance;
+}
+
+static uint8_t int2seven[10] = {
+					0b01111110,
+					0b00010010,
+					0b10111100,
+					0b10110110,
+					0b11010010,
+					0b11100110,
+					0b11101110,
+					0b00110010,
+					0b11111110,
+					0b11110110
+					};
+
+// send 32bit to four 8bit shift registers
+static void shiftreg_send(uint32_t data, struct pio_inst inst) {
+	while (pio_sm_is_tx_fifo_full(inst.pio,inst.sm)) {
+		;
+	}
+    pio_sm_put_blocking(inst.pio,inst.sm, data);
+}
+
+%}

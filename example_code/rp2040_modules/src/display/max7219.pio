@@ -1,0 +1,181 @@
+// max7219 interface for led matrix and seven segment displays
+
+.program max7219
+
+.side_set 1 opt
+
+pull         					; Load a 32-bit word from the TX FIFO into the OSR, or stall
+set x, 31      					; Preload bit counter
+
+bitloop:                   		; This loop will run 32 times
+out pins, 1 side 0        		; Shift 1 bit from OSR to the first pin: "PIN_DATA"
+	jmp x-- bitloop side 1
+set pins, 1						; set enable pin high
+set pins, 0						; set enable pin low
+
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+// !!! BAD PRACTICS !!!
+// this code uses hardcoded PIO and SM so it should be only seen as an exaple
+// a better design is implemented in ws2812.pio
+
+#define sm2 2
+
+const PIO max7219pio;
+
+void max7219_send(uint32_t data);
+
+void max7219_init(uint8_t data_pin, uint8_t clock_pin, uint8_t enable_pin) {
+	
+	// define clk speed
+	uint32_t SHIFT_CLK  = 100 * 1000;	// 100 kHz
+	
+	PIN_DATA  = data_pin;
+	PIN_CLK   = clock_pin;
+	PIN_ENA   = enable_pin;
+
+	const uint pin_base = PIN_DATA;
+
+	// init pins for use with PIO
+	pio_sm_set_consecutive_pindirs(pio0, sm2, data_pin, 1, true);
+	pio_sm_set_consecutive_pindirs(pio0, sm2, clock_pin, 1, true);
+	pio_sm_set_consecutive_pindirs(pio0, sm2, enable_pin, 1, true);
+	pio_gpio_init(pio0, data_pin);
+	pio_gpio_init(pio0, clock_pin);
+	pio_gpio_init(pio0, enable_pin);
+
+	// copy programm
+	uint max7219_offset = pio_add_program(pio0, &max7219_program);	
+	pio_sm_config conf2 = max7219_program_get_default_config(max7219_offset);
+
+	// set fifos
+	// OUT shifts to left, no autopull
+	sm_config_set_out_shift(&conf2, false, false, 32);
+	sm_config_set_fifo_join(&conf2, PIO_FIFO_JOIN_TX);
+
+	// config pins
+	sm_config_set_set_pins(&conf2, enable_pin, 1);
+	sm_config_set_out_pins(&conf2, data_pin, 1);
+	sm_config_set_sideset_pins(&conf2, clock_pin);	   // pins to use in SIDE instr
+
+	// set clock divider
+	float div = (float)clock_get_hz(clk_sys) / (SHIFT_CLK * 2);
+	sm_config_set_clkdiv(&conf2, div);
+
+	// init sm
+	pio_sm_init(pio0, sm2, max7219_offset, &conf2);
+
+	// clear fifo and enable
+	pio_sm_clear_fifos(pio0, sm2);
+	pio_sm_set_enabled(pio0, sm2, true);
+	
+	// init sequence for max7219 chip
+	max7219_send(0x00000000);
+	
+	max7219_send(0x01000100);
+	max7219_send(0x02000200);
+	max7219_send(0x03000300);
+	max7219_send(0x04000400);
+	max7219_send(0x05000500);
+	max7219_send(0x06000600);
+	max7219_send(0x07000700);
+	max7219_send(0x08000800);
+	
+	
+	max7219_send(0x09000900);
+	max7219_send(0x0A010A01);
+	max7219_send(0x0B070B07);
+	max7219_send(0x0C010C01);
+	max7219_send(0x0F000F00);
+	
+}
+
+/// send to two displays as 0xR1R1D1D1R0R0D0D0
+void max7219_send(uint32_t data) {
+	while (pio_sm_is_tx_fifo_full(pio0,sm2)) {
+		;
+	}
+	pio_sm_put_blocking(pio0, sm2, data);
+}
+
+// send instuction to two displays
+void max7219_send_instr(uint8_t reg1, uint8_t data1, uint8_t reg0, uint8_t data0) {
+	uint32_t data =  (((uint32_t) reg1) << 24) | (((uint32_t) data1) << 16) | (((uint32_t) reg0) << 8) | ((uint32_t) data0);
+	max7219_send(data);
+}
+
+//print a ascii cahr to the first display
+void max7219_send_dot_char(uint8_t ascii) {
+	for (uint8_t i = 0 ; i < 5; i++) {
+		max7219_send_instr(i+1,max7219_dot_caractrs[ascii][i],0,0);
+	}
+}
+
+// scroll at two displays thow all avaible chars
+void max7219_scroll_all_char() {
+	do {
+		for (int i = 0; i < 96*6; i++)	{
+			for (int j = 0; j < 8; j++) {
+				if ((i+j)%6 == 5) {
+					max7219_send_instr(0,0,j+1,max7219_dot_caractrs[0][0]);
+				} else {
+					max7219_send_instr(0,0,j+1,max7219_dot_caractrs[(i+j)/6][(i+j)%6]);
+				}
+			}
+			for (int j = 8; j < 16; j++) {
+				if ((i+j)%6 == 5) {
+					max7219_send_instr(j-7,max7219_dot_caractrs[0][0],0,0);
+				} else {
+				max7219_send_instr(j-7,max7219_dot_caractrs[(i+j)/6][(i+j)%6],0,0);
+				}
+			}
+			sleep_ms(10);
+		}
+	} while(1);
+}
+
+// scroll a arbitrary string across the displays
+void max7219_scroll_string(char *msg, uint8_t speed) {
+		uint8_t lenght = 1;
+		for (; msg[lenght] != '\0'; lenght++){
+			;
+		}
+		uint8_t text[lenght][5];
+		for (uint8_t i = 0; i < lenght; i++){
+			for (uint8_t j = 0; j<5; j++) {
+				text[i][j] = max7219_dot_caractrs[msg[i]-0x20][j];
+			}
+		}
+		
+		for (int i = 0; i < lenght*6; i++)	{
+			for (int j = 0; j < 8; j++) {
+				if ((i+j)%6 == 5 || (i+j)/6 >= lenght) {
+					max7219_send_instr(0,0,j+1,0x00);
+				} else {
+					max7219_send_instr(0,0,j+1,text[(i+j)/6][(i+j)%6]);
+				}
+			}
+			for (int j = 8; j < 16; j++) {
+				if ((i+j)%6 == 5 || (i+j)/6 >= lenght) {
+					max7219_send_instr(j-7,0x00,0,0);
+				} else {
+				max7219_send_instr(j-7,text[(i+j)/6][(i+j)%6],0,0);
+				}
+			}
+			sleep_ms(speed);
+		}
+		
+
+}
+
+// turn all pixels on
+void max7219_disply_array_on_2x8x8(uint8_t *msg) {
+	for( int i = 0; i<8; i++) {
+		max7219_send_instr(i+1,msg[i],i+1,msg[i+8]);
+	}
+}
+
+
+%}

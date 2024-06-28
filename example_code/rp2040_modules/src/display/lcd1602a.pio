@@ -1,0 +1,314 @@
+// modified for the use with a 1602 lcd and analoge button matrix
+/*
+ * Copyright (c) 2022 Gerhard Schiller
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ * https://www.gnu.org/licenses/lgpl+gpl-3.0.txt
+ */
+
+.program lcd1602a
+
+.define NUM_DEVICES 1	; count of devices in daisy-chain: 1 ... 4
+
+; DO NOT MODIFY defines below, unless you know what you are doing!
+.define LATCH_HIGH 0b0110
+.define LATCH_LOW  0b0010
+
+.define loopctr 	((NUM_DEVICES * 8) - 1)
+
+; we shift out rigth to left (MSB first), so we must set unused bits to 0.
+.define discardsbits (32 - (NUM_DEVICES * 8))
+
+.side_set 1 opt
+
+pull         					; Load a 32-bit word from the TX FIFO into the OSR, or stall
+set x, loopctr      			; Preload bit counter
+
+bitloop:                   		; This loop will run NUM_DEVICES*8 times
+out pins, 1 side 0        		; Shift 1 bit from OSR to the first pin: "PIN_DATA"
+	jmp x-- bitloop side 1
+out null,discardsbits side 0
+nop side 1
+
+% c-sdk {
+#include "pico/stdlib.h"
+#include "hardware/clocks.h"
+#include "hardware/adc.h"
+#include <stdio.h>
+#include "src/pio_tool.h"
+
+static uint8_t PIN_DATA;
+static uint8_t PIN_ENA;
+static uint8_t PIN_CLK;
+static uint8_t PIN_REG;
+static uint8_t PIN_BTN;
+static uint8_t PIN_BIRQ;
+
+static const uint32_t SHIFT_CLK  = 100 * 1000;	// 100 kHz
+
+static void lcd1602a_send(uint8_t data, bool is_data);
+static void lcd1602a_print(char* string, uint8_t line);
+static void gpio_callback2(uint gpio, uint32_t events);
+static void read_Button();
+
+static struct pio_inst lcd1602a_instance;
+
+static void lcd1602a_init(uint8_t data_pin, uint8_t clock_pin, 
+					uint8_t enable_pin, uint8_t register_pin, 
+					uint8_t adc_button_pin, uint8_t irq_button_pin) {
+
+	
+	// get unused sm
+	PIO pio = pio0;
+    uint sm = pio_claim_unused_sm(pio0, false);
+    if (sm == -1) {
+		uint sm = pio_claim_unused_sm(pio1, true);
+		PIO pio = pio1;
+    }
+	
+
+	PIN_DATA  = data_pin;
+	PIN_CLK   = clock_pin;
+	PIN_ENA   = enable_pin;
+	PIN_REG   = register_pin;
+	PIN_BTN   = adc_button_pin;
+	PIN_BIRQ  = irq_button_pin;
+
+	const uint pin_base = PIN_DATA;
+
+	// init pins
+	pio_sm_set_consecutive_pindirs(pio, sm, data_pin, 1, true);
+	pio_sm_set_consecutive_pindirs(pio, sm, clock_pin, 1, true);
+	pio_gpio_init(pio, data_pin);
+	pio_gpio_init(pio, clock_pin);
+
+	// load programm
+	uint lcd1602a_offset = pio_add_program(pio, &lcd1602a_program);	
+	pio_sm_config conf2 = lcd1602a_program_get_default_config(lcd1602a_offset);
+
+	// configure FIFO
+	// OUT shifts to left, no autopull
+	sm_config_set_out_shift(&conf2, true, false, 32);
+	sm_config_set_fifo_join(&conf2, PIO_FIFO_JOIN_TX);
+
+	// configure pins
+	sm_config_set_out_pins(&conf2, data_pin, 1);
+	sm_config_set_sideset_pins(&conf2, clock_pin);	   // pins to use in SIDE instr
+
+	// set clk divider
+	float div = (float)clock_get_hz(clk_sys) / (SHIFT_CLK * 2);
+	sm_config_set_clkdiv(&conf2, div);
+
+	// init sm
+	pio_sm_init(pio, sm, lcd1602a_offset, &conf2);
+
+	// clear FIFO and enble sm
+	pio_sm_clear_fifos(pio, sm);
+	pio_sm_set_enabled(pio, sm, true);
+	
+	// init register select pin
+	gpio_init(register_pin);
+	gpio_set_dir(register_pin, GPIO_OUT);
+	
+	// init enable pin
+	gpio_init(enable_pin);
+	gpio_set_dir(enable_pin, GPIO_OUT);
+	gpio_put(enable_pin, true);
+	
+	// reset doesn't work from this method
+/*
+	sleep_ms(10);
+	lcd1602a_send(0x38,0);
+	sleep_ms(50);
+	lcd1602a_send(0x38,0);
+	sleep_ms(50);
+	lcd1602a_send(0x38,0);
+	sleep_ms(50);
+
+	
+	lcd1602a_send(0x38,0);
+	sleep_ms(200);
+	lcd1602a_send(0x0f,0);
+	sleep_ms(200);
+	// lcd1602a_send(0x02,0);
+	// sleep_ms(200);
+	lcd1602a_send(0x01,0);
+	sleep_ms(20);
+*/
+
+	// init adc for button panel
+	adc_init();
+	gpio_init(PIN_BIRQ);
+	gpio_set_dir(PIN_BIRQ, GPIO_IN);
+	adc_gpio_init(PIN_BTN);
+
+	// this can be used for slighty offseting the resitive divider
+	gpio_pull_up(PIN_BIRQ);
+
+	// enable interrupt
+	gpio_set_irq_enabled_with_callback(PIN_BIRQ, GPIO_IRQ_EDGE_RISE, true, &gpio_callback2);
+	
+    lcd1602a_instance.sm = sm;
+    lcd1602a_instance.pio = pio;
+}
+
+// reset lcd
+static void lcd1602a_reset(){
+	sleep_ms(10);
+	lcd1602a_send(0x38,0);
+	sleep_ms(50);
+	lcd1602a_send(0x38,0);
+	sleep_ms(50);
+	lcd1602a_send(0x38,0);
+	sleep_ms(50);
+
+	
+	lcd1602a_send(0x38,0);
+	sleep_ms(200);
+	lcd1602a_send(0x0f,0);
+	sleep_ms(200);
+	// lcd1602a_send(0x02,0);
+	// sleep_ms(200);
+	lcd1602a_send(0x01,0);
+	sleep_ms(20);
+}
+
+// send data to display
+static void lcd1602a_send(uint8_t data, bool is_data) {
+	while (pio_sm_is_tx_fifo_full(lcd1602a_instance.pio,lcd1602a_instance.sm)) {
+		;
+	}
+	gpio_put(PIN_ENA, true);
+	sleep_us(50);
+	gpio_put(PIN_REG, is_data);
+	pio_sm_put_blocking(lcd1602a_instance.pio,lcd1602a_instance.sm, (uint32_t) data);
+	sleep_ms(1);
+	gpio_put(PIN_ENA, false);
+	sleep_us(1000);
+	gpio_put(PIN_ENA, true);
+}
+ 
+// printnull terminated string to display on line 1 or 2
+static void lcd1602a_print(char* string, uint8_t line) {
+	if (line == 2) {
+		lcd1602a_send(0xA9,0);
+		sleep_ms(2);
+	} else {
+		lcd1602a_send(0x02,0);
+		sleep_ms(2);
+	}
+	for (int i = 0; string[i] != '\0' ; i++) {
+		lcd1602a_send(string[i],1);
+	}
+
+}
+
+// send custom chars as seen in app_drive.h
+static void lcd1602a_set_custom_chars(uint8_t* bytes) {
+
+	// add the 8 costom chars to lcd ram
+	for (uint8_t i = 0; i < 8; i++) {
+		lcd1602a_send(0x40 + i*8,0);
+		sleep_ms(20);
+		for (uint8_t j = 0; j < 8; j++) {
+			lcd1602a_send(bytes[j + i*8 ],1);
+			sleep_ms(20);
+		}
+	}
+
+	// reset corsor to home
+	lcd1602a_send(0x02,0);
+	sleep_ms(20);
+}
+
+// interrupt for button pannel
+static void gpio_callback2(uint gpio, uint32_t events) {
+    if(gpio==PIN_BIRQ) {
+		read_Button();
+    }
+}
+
+static uint8_t buttons = 0; //lower four bits show botton presses 
+
+// ract and read  analogue button pannel
+static void read_Button() {
+
+	uint16_t value =0;
+
+	adc_select_input(PIN_BTN - 26);
+	for (int i = 0; i < 10 ; i++) {
+		 value += adc_read();
+	}
+	value /= 10;
+	
+	printf("B[%4d]",value);
+
+// this decition tree can be used if resitive divider is implemented as seen in the shematic
+/*
+	if (value < 2090) {
+		if (value < 1165) {
+			if (value < 615) {
+				if (value < 400) {
+					// min < x < 400
+					buttons = 0b0000;
+				} else {
+					// 400 < x < 615
+					buttons = 0b1000;
+				}
+			} else if (value < 940) {
+				// 615 < x < 940
+				buttons = 0b0100;
+			} else {
+				// 940 < x < 1165
+				buttons = 0b1100;
+			}
+		} else if (value < 1580) {
+			if (value < 1355) {
+				// 1165 < x < 1355
+				buttons = 0b0010;
+			} else {
+				// 1355 < x < 1580
+				buttons = 0b1010;
+			}
+		} else if (value < 1780) {
+			// 1580 < x < 1780
+			buttons =0b0110;
+		} else {
+			// 1780 < x < 1090
+			buttons = 0b1110;
+		}
+	} else if (value < 2610) {
+		if (value < 2455) {
+			if (value < 2350) {
+				// 2090 < x < 2350
+				buttons = 0b0001;
+			} else {
+				// 2350 < x < 2455
+				buttons = 0b1001;
+			}
+		} else if (value < 2550) {
+			// 2455 < x < 2550
+			buttons = 0b0101;
+		} else {
+			// 2550 < x < 2610
+			buttons = 0b1101;
+		}
+	} else if (value < 2745) {
+		if (value < 2675) {
+			// 2610 < x < 2675
+			buttons = 0b0011;
+		} else {
+			// 2675 < x < 2745
+			buttons = 0b1011;
+		}
+	} else if (value < 2810) {
+		// 2745 < x < 2810
+		buttons = 0b0111;
+	} else {
+		// 2810 < x < max
+		buttons = 0b1111;
+	}
+
+*/
+}
+
+%}

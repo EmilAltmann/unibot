@@ -1,0 +1,117 @@
+; This is a PIO module for interfacing with the ws2812 rgb LEDs, formaly known as NEOPIXELs
+
+.program ws2812
+.side_set 1
+
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.lang_opt python sideset_init = pico.PIO.OUT_HIGH
+.lang_opt python out_init     = pico.PIO.OUT_HIGH
+.lang_opt python out_shiftdir = 1
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1] ; Side-set still takes place when instruction stalls
+    jmp !x do_zero side 1 [T1 - 1] ; Branch on the bit we shifted out. Positive pulse
+do_one:
+    jmp  bitloop   side 1 [T2 - 1] ; Continue driving high, for a long pulse
+do_zero:
+    nop            side 0 [T2 - 1] ; Or drive low, for a short pulse
+.wrap
+
+% c-sdk {
+
+#include "hardware/clocks.h"
+#include "pico/stdlib.h"
+#include "src/pio_tool.h"
+#include <stdio.h>
+
+static inline struct pio_inst ws2812_program_init(uint pin, float freq) {
+
+	struct pio_inst instance;
+
+    // look for unused state machine in both PIO cores
+	PIO pio = pio0;
+    uint sm = pio_claim_unused_sm(pio0, false);
+    if (sm == -1) {
+		uint sm = pio_claim_unused_sm(pio1, true);
+		PIO pio = pio1;
+    }
+
+    // load programm
+    uint offset = pio_add_program(pio, &ws2812_program);
+
+    // init PIO/SM instance
+    pio_gpio_init(pio, pin);
+
+    // set the data pin as output
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    // get config struct
+    pio_sm_config c = ws2812_program_get_default_config(offset);
+
+    //set data pin as sideset
+    sm_config_set_sideset_pins(&c, pin);
+
+    // configure shifting behaviour
+    sm_config_set_out_shift(&c, false, true, 24);
+
+    // join the FIFOs to one
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+    // set clock divider to correct speed
+    int cycles_per_bit = ws2812_T1 + ws2812_T2 + ws2812_T3;
+    float div = clock_get_hz(clk_sys) / (freq * cycles_per_bit);
+    sm_config_set_clkdiv(&c, div);
+
+    // set configuration and start 
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+    
+    // store instance
+    instance.pin = pin;
+    instance.sm = sm;
+    instance.pio = pio;
+    
+    return instance;
+}
+
+// put one 32bit word of data out
+static void put_pixel(uint32_t pixel_grb, struct pio_inst inst) {
+	while (pio_sm_is_tx_fifo_full(inst.pio,inst.sm)) {
+		;
+	}
+    pio_sm_put_blocking(inst.pio,inst.sm, pixel_grb);
+}
+
+// construct urgb from 8 bit R, G and B values
+static uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
+    return
+            ((uint32_t) (r) << 16) |
+            ((uint32_t) (g) << 24) |
+            ((uint32_t) (b) << 8 );
+}
+
+// set multiple pixels to their colors
+static void put_pixels(uint32_t *pixel_grb, uint8_t count, struct pio_inst inst) {
+	for (uint8_t x = 0; x < count; x++) {
+		while (pio_sm_is_tx_fifo_full(inst.pio,inst.sm)) {
+			;
+		}
+		pio_sm_put_blocking(inst.pio, inst.sm, pixel_grb[x]);
+    }
+}
+
+// set multiple pixels to one color
+static void put_all_pixel(uint32_t pixel_grb, uint8_t count, struct pio_inst inst) {
+	for (int i = 0; i < count; i++) {
+	while (pio_sm_is_tx_fifo_full(inst.pio,inst.sm)) {
+		;
+	}
+    pio_sm_put_blocking(inst.pio,inst.sm, pixel_grb);
+    }
+}
+
+%}
