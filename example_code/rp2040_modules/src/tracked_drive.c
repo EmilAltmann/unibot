@@ -64,7 +64,7 @@ void start_tracked_drive() {
 
         sleep_ms(25);
 
-
+        //printf("Luminance: l%d m%d r%d\n",color_data[4],color_data[9],color_data[14]);
 
         // this code count from 0 to 99 on the seven segment display
         shiftreg_send(int2seven[shiftreg_alive%10]|int2seven[shiftreg_alive/10]<<8,shifreg_inst);
@@ -73,6 +73,17 @@ void start_tracked_drive() {
         } else {
             shiftreg_alive++;
         }
+
+        if (color_data[4]>9000 && color_data[9]>15000 && color_data[14] > 11000) {
+            l298n_driveBackward();
+            sleep_ms(500);
+            l298n_rotateRight();
+            sleep_ms(500);
+            l298n_driveForeward();
+        } else {
+            l298n_driveForeward();
+        }
+
     }
 
 }

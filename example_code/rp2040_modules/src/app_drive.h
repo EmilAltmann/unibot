@@ -41,6 +41,13 @@
 #define APP_DRIVE_1602A_LCD_DATA_BUT_A 26
 #define APP_DRIVE_1602A_LCD_DATA_BUT_I 20
 
+#define APP_DRIVE_TF5_PWM 21
+#define APP_DRIVE_TF4_PWM 5
+#define APP_DRIVE_TF3_PWM 4
+
+#define APP_DRIVE_TM5_PWM 28
+#define APP_DRIVE_TM4_PWM 27
+
 /*
  * status LED colors:
  * - red-green: init

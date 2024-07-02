@@ -1,12 +1,12 @@
-#ifndef _MAX7219_OT_MATRIX_DISLAY_H_
+#ifndef _MAX7219_DOT_MATRIX_DISLAY_H_
 #define _MAX7219_DOT_MATRIX_DISLAY_H_
 
 // this header defines a 5x8px ascii chars
 // for efficiency reasons its offset by 0x20
 
-uint8_t max7219_8x16_dot_display[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static uint8_t max7219_8x16_dot_display[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
-uint8_t max7219_dot_caractrs[96][5] = {
+static uint8_t max7219_dot_caractrs[96][5] = {
 	
 	{	0b00000000,		// space
 		0b00000000,

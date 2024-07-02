@@ -2,7 +2,9 @@
 .DS_Store
 /example_code/rp2040_modules/src/.vscode
 /example_code/rp2040_modules/.vscode
+.vscode
 /example_code/rp2040_modules/CMakeLists.txt
 /example_code/rp2040_modules/build.sh
+build
 /example_code/rp2040_modules/wait.sh
 /example_code/rp2040_modules/build

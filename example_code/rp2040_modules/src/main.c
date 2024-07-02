@@ -20,6 +20,7 @@
 
 #include "app_drive.h"
 #include "tracked_drive.h"
+#include "two_wheel_drive.h"
 
 #include "ws2812.pio.h"
 #include "display/ws2812_test.h"
@@ -61,15 +62,18 @@ int main() {
 	//# alwas needed
     stdio_init_all();
 
-
 	//# Example project with mecanum wheels
 	//# reacting and send over USART
 	// start_app_drive();
 
 
 	//# Example project with tracked propulsion
-	start_tracked_drive();
-    
+	// start_tracked_drive();
+
+	//# Example project with signle wheel dc motors
+	// start_two_wheel_drive();
+
+	
 
 	//# Example how to use lcd1602 display
     // lcd1602a_init(0, 1, 2, 3, 26, 20);
@@ -141,11 +145,11 @@ int main() {
 	// }
 	
 
-	// //# Example for different 8x8 RGB led test
-	// //# alwas needed
+	//# Example for different 8x8 RGB led test
+	//# alwas needed
 	// struct pio_inst test_inst = ws2812_program_init(0, 800000);
 	// clear_ws2812_current_state();
-	// //# choose only one
+	//# choose only one
 	// test_ws2812_orientation(test_inst);
 	// test_ws2812_color_scrolling(test_inst);
 	// test_ws2812_compass_free_running(0);
@@ -165,11 +169,13 @@ int main() {
 	
 	//# Example for max7219 ontrolled displays
 	//# alwas needed
-	// max7219_init(0,1,2);
+	//  struct pio_inst dotmatrix = max7219_init(17,18,19);
 
 	//# following are for dual 8x8 dot matrix
 	//# scroll trow all avaiable chars
-	// max7219_scroll_all_char();
+	// while (1) {
+	// 	max7219_scroll_all_char(dotmatrix);
+	// }
 	//# repeadedly scroll Hello World!
 	// while (1) {
 	// 	max7219_scroll_string("Hello World!", 100);
@@ -192,6 +198,39 @@ int main() {
 		//~ max7219_send(data);
 		//~ sleep_ms(1);
 	//~ }
+
+	// //# exapmple of servo lib
+	// add_servo_at_pin(0);
+	// while (1)  {
+	// set_servo_to_pos(0,220);
+	// sleep_ms(2000);
+	// set_servo_to_pos(0,1700);
+	// sleep_ms(2000);
+	// }
+
+	// //# exapmple of servo lib for five servos
+	// int pos0 = 0;
+	// int pos1 = 0;
+	// int pos2 = 0;
+	// int pos3 = 0;
+	// int pos4 = 0;
+	// add_servo_at_pin(APP_DRIVE_TF5_PWM,500);
+	// add_servo_at_pin(APP_DRIVE_TF4_PWM,500);
+	// add_servo_at_pin(APP_DRIVE_TF3_PWM,500);
+	// add_servo_at_pin(APP_DRIVE_TM5_PWM,600);
+	// add_servo_at_pin(APP_DRIVE_TM4_PWM,1200);
+	// while (true) {
+	// 	printf("new pos:");
+	// 	scanf("%d %d %d %d %d", &pos0, &pos1, &pos2, &pos3, &pos4);
+	// 	printf("%d %d %d %d %d\n",pos0, pos1, pos2, pos3, pos4);
+	// 	set_servo_to_pos(APP_DRIVE_TF5_PWM,pos0);
+	// 	set_servo_to_pos(APP_DRIVE_TF4_PWM,pos1);
+	// 	set_servo_to_pos(APP_DRIVE_TF3_PWM,pos2);
+	// 	set_servo_to_pos(APP_DRIVE_TM5_PWM,pos3);
+	// 	set_servo_to_pos(APP_DRIVE_TM4_PWM,pos4);
+	// 	sleep_ms(10);
+    // }
+
 
 	//# needed for stopping the RP2040 going to sleep
 	while(1);

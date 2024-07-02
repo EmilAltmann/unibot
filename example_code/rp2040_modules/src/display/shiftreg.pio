@@ -6,7 +6,7 @@
  * https://www.gnu.org/licenses/lgpl+gpl-3.0.txt
  */
  
-.program shiftreg
+ .program shiftreg
 
 .define NUM_DEVICES 4	; count of devices in daisy-chain: 1 ... 4
 

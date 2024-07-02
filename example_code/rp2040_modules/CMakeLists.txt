@@ -1,6 +1,3 @@
-# Copyright (c) 2022 Mr. Green's Workshop https://www.MrGreensWorkshop.com
-# SPDX-License-Identifier: Apache-2.0
-
 # Set minimum CMake version
 cmake_minimum_required(VERSION 3.17)
 
@@ -10,7 +7,7 @@ include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 # Set the name and version of the project
 project(rp2040_module VERSION 0.0.1)
 
-# Set the board to Raspberry Pi Pico W
+# Set the board to Raspberry Pi Picos
 set(PICO_BOARD pico)
 
 # Set top source code folder
@@ -87,8 +84,6 @@ add_definitions(-DPICO_STDIO_USB_CONNECTION_WITHOUT_DTR=1)
 add_custom_command(
   TARGET ${PROJECT_NAME} POST_BUILD
   COMMAND ${CMAKE_SOURCE_DIR}/wait.sh
-#	COMMAND ${CMAKE_COMMAND} -E copy
-#  ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.uf2 /media/emil/RPI-RP2
   COMMENT "Copiing uf2 to rpi."
 )
 

@@ -5,15 +5,16 @@
 #include "stdio.h"
 #include "hardware/pwm.h"
 
+
 // This is a generalized module for a two motor differtial drive
 
 /// IO pins for the stepper drivers
-#define LDA 4
-#define LDB 5
-#define RDA 1
-#define RDB 2
-#define REN 0
-#define LEN 3
+#define LDA 12
+#define LDB 11
+#define RDA 9
+#define RDB 8
+#define REN 10
+#define LEN 13
 
 /// PWM slices and channels
 static uint dual_dc_slice_L;
