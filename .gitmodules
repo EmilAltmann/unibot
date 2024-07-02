@@ -1,0 +1,6 @@
+[submodule "example_code/backend_nonc"]
+	path = example_code/backend_nonc
+	url = https://github.com/Rajala1404/Unibot_Backend.git
+[submodule "example_code/android_app"]
+	path = example_code/android_app
+	url = https://github.com/Rajala1404/Unibot_Frontend_App.git
