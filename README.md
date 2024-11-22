@@ -1,4 +1,4 @@
-#unibot
+# unibot
 
 This is my diploma project made in 2024 at the Universität Kassel.
 The main documentation is found under unibot.pdf.
